@@ -1,0 +1,16 @@
+- mappingName: apiName
+  source: info.title
+  target: metadata.name
+  rule:
+    - NoWhitespace
+    - CopyField
+- mappingName: description
+  source: info.description
+  target: metadata.description
+  rule:
+    - CopyField
+- mappingName: repoLocation
+  source: env.repoLocation
+  target: spec.definition.$text
+  rule:
+    - CopyField
