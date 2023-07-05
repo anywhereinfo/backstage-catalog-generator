@@ -1,15 +1,26 @@
 package com.example.demo;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ClassPathResource;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationContext;
+import org.springframework.core.env.Environment;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StreamUtils;
+
+import com.example.demo.core.GenericRulesEngine;
+import com.example.demo.core.MappingRule;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import io.github.yamlpath.YamlExpressionParser;
 import io.github.yamlpath.YamlPath;
@@ -17,29 +28,54 @@ import io.github.yamlpath.YamlPath;
 @Component
 public class Converter {
 
+    @Value("classpath:rules.yml")
+    private Resource rulesResource;
+    
+    @Value("classpath:backstage.yml")
+    private Resource backstageResource;
+    
 	String fileName = "backstage.yml";
-	
-	@Autowired 
-	private RulesEngine rulesEngine;
-	
-	public void convert (String oasFile, String repoLocation) {
-		Path oasDirectory = getDirectory(oasFile);
-		
-		String oas = readFile(oasFile);
-		String catalog = readCatalog();
-		YamlExpressionParser oasYaml = YamlPath.from(oas);
-		YamlExpressionParser catalogYaml = YamlPath.from(catalog);
-		rulesEngine.applyRules(oasYaml, catalogYaml);
-		/**
-		String apiName = oasYaml.readSingle("info.title");
-		if (apiName.matches(".*\\s.*")) {
-			apiName = apiName.replaceAll("\\s", "-");
-		}
 
-		catalogYaml.write("metadata.name", apiName); **/
-		String catalogString = catalogYaml.dumpAsString();
+	@Autowired
+	GenericRulesEngine rulesEngine;
+	
+	@Autowired
+	Environment environment;
+	
+	private YamlExpressionParser catalogParser;
+	
+
+	public void convert (String oasFile, String repoLocation) throws IOException {
+		YamlExpressionParser oasParser = getOasParser(oasFile);
+		catalogParser = getCatalogParser();
+		Path oasDirectory = getDirectory(oasFile);
+		List<MappingRule> mappingRules = getMappingRules(oasParser, catalogParser);
+		rulesEngine.execute(mappingRules);
+		String catalogString = catalogParser.dumpAsString();
 		writeFile(oasDirectory, catalogString, constructNameFrom(extractFileName(oasFile)));
 	}
+	
+    public List<MappingRule> getMappingRules(YamlExpressionParser oasParser, YamlExpressionParser catalogParser) throws IOException {
+        ObjectMapper objectMapper = new ObjectMapper(new YAMLFactory());
+        List<MappingRule> mappingRules;
+        try (InputStream inputStream = rulesResource.getInputStream()) {
+            mappingRules = objectMapper.readValue(inputStream, new TypeReference<List<MappingRule>>() {
+            });
+        } 
+        for (MappingRule rule : mappingRules)
+        	rule.initMe(oasParser, environment, catalogParser);
+        return mappingRules;
+    }
+    
+    private YamlExpressionParser getCatalogParser() {
+    	YamlExpressionParser catalogParser = null;
+     	try {
+    			catalogParser = YamlPath.from(StreamUtils.copyToString(backstageResource.getInputStream(), StandardCharsets.UTF_8));
+    	} catch (IOException e) {
+    		e.printStackTrace();
+    	}
+     	return catalogParser;
+    }
 	
 	private String constructNameFrom(String oasName) {
 		return "backstage-" + oasName + ".yml";
@@ -74,6 +110,15 @@ public class Converter {
 		return oasDirectory.getParent();
 	}
 	
+    public YamlExpressionParser getOasParser(@Value("${oasFile}") String oasFile) {
+    	System.out.println("*********************************************************GetOASPArser called");
+		String oas = readFile(oasFile);
+		YamlExpressionParser parser = YamlPath.from(oas);
+		if (parser == null)
+			System.out.println("***********************PARSER NULL");
+		return parser;
+    }
+	
 	private String readFile(String localOASFile) {
 	       String oasFile = null;
 			try {
@@ -83,28 +128,13 @@ public class Converter {
 	            // Convert the byte array to a string using UTF-8 encoding
 	            oasFile = new String(bytes, StandardCharsets.UTF_8);
 	            
-	            System.out.println(oasFile);
+
 	            
 	        } catch (Exception e) {
 	            e.printStackTrace();
 	        }
-           return oasFile;
+        return oasFile;
 	    }
 	
-	private String readCatalog() {
-        String backstageFile = null;
-		try {
-            // Load the file from the resources folder inside the JAR
-            ClassPathResource resource = new ClassPathResource(fileName);
-            
-            // Read the file into a string
-            backstageFile = StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8);
-            
-            System.out.println(backstageFile);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }	
-		return backstageFile;
-	}
 	}
 

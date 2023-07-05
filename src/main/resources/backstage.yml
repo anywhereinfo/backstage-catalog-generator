@@ -1,8 +1,8 @@
 apiVersion: backstage.io/v1alpha1
 kind: API
 metadata:
-  name: angry-cats
-  description: Lethal cats here
+  name: dummy 
+  description: dummy
 spec:
   type: openapi
   lifecycle: production
